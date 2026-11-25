@@ -307,6 +307,7 @@ body.on-start .start-opts{gap:14px!important}
   <button data-go="main"><svg viewBox="0 0 24 24"><path d="M4 5h16v15H4zM4 9h16M9 3v4M15 3v4M8 13h3M8 16h6"/></svg><span><b>훈련 플래너</b><small>정보 입력 · 훈련 계획 · 춘천 코스 지도</small></span></button>
   <button data-go="5"><svg viewBox="0 0 24 24"><path d="M5 4h11a3 3 0 013 3v13H8a3 3 0 01-3-3zM5 17a3 3 0 013-3h11M9 8h6"/></svg><span><b>훈련 용어 사전</b><small>존 · FTP · IF · TSS · LT · VO2max 등</small></span></button>
   <button data-go="4"><svg viewBox="0 0 24 24"><circle cx="5.5" cy="16.5" r="3.5"/><circle cx="18.5" cy="16.5" r="3.5"/><path d="M5.5 16.5L9.5 9.5L11.5 16.5ZM9.5 9.5H16M11.5 16.5L16 9.5L18.5 16.5M9.5 9.5L9 7.5M7.5 7.5h3M16 9.5L15.3 7h2.4"/></svg><span><b>라이딩 모드</b><small>GPS로 코스 주행 · 속도 · 거리 · 칼로리 기록</small></span></button>
+  <button data-go="6" id="sbDiag" class="hide"><svg viewBox="0 0 24 24"><path d="M12 21s-6-5.6-6-11a6 6 0 0112 0c0 5.4-6 11-6 11z"/><circle cx="12" cy="10" r="2.2"/><path d="M3 21h18"/></svg><span><b>GPS 진단 기록</b><small>라이딩 중 GPS 수신 상태 · 화면 꺼짐/켜짐 기록</small></span></button>
  </div>
  <div class="sb-foot"><a href="privacy.html#privacy">개인정보처리방침</a><span>·</span><a href="privacy.html#location">위치정보 이용약관</a><small>문의 artospil@naver.com</small></div>
 </aside>
@@ -373,6 +374,7 @@ body.on-start .start-opts{gap:14px!important}
 <section id="p3" class="hide" aria-label="춘천 코스 지도"></section>
 <section id="p4" class="hide" aria-label="라이딩 모드"></section>
 <section id="p5" class="hide" aria-label="훈련 용어 사전"></section>
+<section id="p6" class="hide" aria-label="GPS 진단 기록"></section>
 </main>
 <script>
 /* 안드로이드 앱: 저장 데이터를 앱 내부 파일에도 즉시 기록(WebView 저장은 몇 초 늦게 디스크에 반영돼 그 사이 강제종료되면 사라짐) */
@@ -1180,17 +1182,17 @@ function sbClose(){sb.classList.remove('open');mask.classList.add('hide');sb.set
 window.sbOpen=sbOpen;window.sbClose=sbClose;
 $('#menuBtn').onclick=()=>sb.classList.contains('open')?sbClose():sbOpen();
 $('#sbClose').onclick=sbClose;mask.onclick=sbClose;
-function curPage(){for(const i of [1,2,3,4,5])if(!$('#p'+i).classList.contains('hide'))return i;return 1}
+function curPage(){for(const i of [1,2,3,4,5,6])if(!$('#p'+i).classList.contains('hide'))return i;return 1}
 function sbSync(){const p=curPage();sb.querySelectorAll('[data-go]').forEach(b=>{const g=b.dataset.go;b.classList.toggle('on',g==='main'?p<=3:+g===p)})}
 sb.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>{const g=b.dataset.go;sbClose();nav(g==='main'?(lastMain||1):+g)});
 
 /* 화면 전환: 1·2는 go, 3은 ccGo, 4는 라이딩 모드 */
 let lastMain=1;
-function hide4(){if(!$('#p4').classList.contains('hide')){$('#p4').classList.add('hide');rdLeave()}$('#p5').classList.add('hide');document.body.classList.remove('on-ride','on-sub')}
+function hide4(){if(!$('#p4').classList.contains('hide')){$('#p4').classList.add('hide');rdLeave()}$('#p5').classList.add('hide');$('#p6').classList.add('hide');document.body.classList.remove('on-ride','on-sub')}
 const goV11=go;go=function(p){hide4();goV11(p);lastMain=p};
 const ccGoV11=ccGo;ccGo=function(){hide4();ccGoV11();lastMain=3};
 $('#n1').onclick=()=>go(1);$('#n2').onclick=()=>go(2);$('#n3').onclick=()=>ccGo();
-function nav(n){if(n===5)return glOpen();if(n===4)return rdOpen();if(n===3)return ccGo();go(n)}
+function nav(n){if(n===6)return dgOpen();if(n===5)return glOpen();if(n===4)return rdOpen();if(n===3)return ccGo();go(n)}
 window.cacNav=nav;
 /* 안드로이드 뒤로가기 */
 const toStartV11=toStart;toStart=function(){sbClose();hide4();toStartV11()};$('#modeChange').onclick=()=>toStart();
@@ -1198,7 +1200,7 @@ const toStartV11=toStart;toStart=function(){sbClose();hide4();toStartV11()};$('#
 window.cacBack=function(){if(sb.classList.contains('open')){sbClose();return 'true'}
  const onStart=!$('#p0').classList.contains('hide');
  if(onStart){if(RD.st!=='idle'){$('#p0').classList.add('hide');document.body.classList.remove('on-start');$('#hdr').classList.remove('hide');rdOpen();return 'true'}return 'exit'}
- if(!$('#p4').classList.contains('hide')||!$('#p5').classList.contains('hide')){nav(lastMain||1);return 'true'}
+ if(!$('#p4').classList.contains('hide')||!$('#p5').classList.contains('hide')||!$('#p6').classList.contains('hide')){nav(lastMain||1);return 'true'}
  toStart();return 'true'};
 
 /* ---------- 훈련 용어 사전 ---------- */
@@ -1232,11 +1234,20 @@ const GL={
   ['속도별 MET','','시속 16km 미만 4.0 · 16~19 6.8 · 19~22 8.0 · 22~26 10.0 · 26~31 12.0 · 31 이상 15.8 (신체활동 백과 Compendium 기준).'],
   ['주간 목표 칼로리','','일주일 동안 라이딩으로 태울 칼로리 목표입니다. 8주 동안 목표의 65%에서 100%까지 늘려 갑니다.']]};
 const GLT={pw:'파워미터',np:'심박계',cal:'칼로리'};
-function subOpen(id){[1,2,3,4,5].forEach(i=>$('#p'+i).classList.toggle('hide',i!==id));[1,2,3].forEach(i=>$('#n'+i).classList.remove('on'));if(id!==4&&RD.st==='idle')rdWatch(false);document.body.classList.add('on-sub');document.body.classList.toggle('on-ride',id===4);window.scrollTo(0,0)}
+function subOpen(id){[1,2,3,4,5,6].forEach(i=>$('#p'+i).classList.toggle('hide',i!==id));[1,2,3].forEach(i=>$('#n'+i).classList.remove('on'));if(id!==4&&RD.st==='idle')rdWatch(false);document.body.classList.add('on-sub');document.body.classList.toggle('on-ride',id===4);window.scrollTo(0,0)}
 function backBar(t){return `<div class="sub-h"><button class="sub-back" data-back><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>훈련 플래너</button><h2>${t}</h2></div>`}
 function bindBack(el){el.querySelectorAll('[data-back]').forEach(b=>b.onclick=()=>nav(lastMain||1))}
 let GLK=null;
 function glOpen(){subOpen(5);glRender()}
+/* GPS 진단 기록(안드로이드 앱 전용, 사이드바 '라이딩 모드' 아래) */
+function hasBr(f){try{return !!(window.AndroidBridge&&AndroidBridge[f])}catch(e){return false}}
+if(hasBr('gpsLog'))$('#sbDiag').classList.remove('hide');
+function dgOpen(){subOpen(6);dgRender()}
+function dgRender(){const el=$('#p6');let t='';try{t=String(AndroidBridge.gpsLog()||'')}catch(e){}
+ el.innerHTML=backBar('GPS 진단 기록')+`<div class="card"><p class="note" style="margin:0 0 12px">라이딩 중 GPS가 끊기거나 경로가 비정상적으로 기록되었다면, 이 화면을 캡처해 보내 주세요. 화면 꺼짐·켜짐 시각과 1분마다 GPS 수신 횟수·정확도·앱 상태가 최근 것부터 남습니다. 앱을 완전히 닫으면 기록이 지워집니다.</p>
+ <button class="btn sec" id="dgRe">새로고침</button><pre id="dgLog" style="white-space:pre-wrap;font-size:12px;line-height:1.55;margin:12px 0 0;color:#c8cfdb"></pre></div>`;
+ $('#dgLog').textContent=t.trim()?t.trim().split('\n').reverse().join('\n'):'아직 기록이 없습니다. 라이딩 기록을 시작하면 남습니다.';
+ $('#dgRe').onclick=dgRender;bindBack(el)}
 window.glOpen=glOpen;
 function myFtp(){const v=S&&S.inp;if(v&&v.mode==='pw'&&v.ftp)return +v.ftp;const f=+($('#ftp')||{}).value;return f>=50&&f<=600?f:0}
 function myHr(){let v=S&&S.inp&&S.inp.mode==='np'?S.inp:null;if(!v){const a=+($('#age2')||{}).value,r=+($('#hrrest')||{}).value,m=+($('#hrmax')||{}).value||0;if(a>=10&&r>=30)v={age:a,hrrest:r,hrmax:m}}
@@ -1278,7 +1289,7 @@ function withRM(fn){const keys=Object.keys(RM),sv={};keys.forEach(k=>sv[k]=CM[k]
 function rdDraw(){const c=$('#rdCanvas');if(!c||!c.clientWidth||$('#p4').classList.contains('hide'))return;
  withRM(()=>{ccDraw();const ctx=c.getContext('2d'),w=c.clientWidth,h=c.clientHeight,P=(a,b)=>ccPoint(a,b,w,h);
   const tr=RD.view?RD.view.pts:RD.pts;
-  if(tr.length>1){ctx.lineCap='round';ctx.lineJoin='round';ctx.beginPath();tr.forEach((p,i)=>{const q=P(p[0],p[1]),o=tr[i-1];/* GPS가 끊긴 구간(60초 넘게 비고 200m 넘게 떨어진 두 점)은 직선으로 잇지 않음 */const gap=o&&p[2]&&o[2]&&p[2]-o[2]>60000&&hav(o,p)>200;(i&&!gap)?ctx.lineTo(q[0],q[1]):ctx.moveTo(q[0],q[1])});ctx.strokeStyle='#fff';ctx.lineWidth=7;ctx.stroke();ctx.strokeStyle='#e11d48';ctx.lineWidth=4;ctx.stroke()}
+  if(tr.length>1){ctx.lineCap='round';ctx.lineJoin='round';ctx.beginPath();/* GPS가 끊긴 구간은 직선으로 잇지 않음: 점 간격이 평소의 3배(최소 20초)를 넘고 50m 넘게 떨어진 두 점 */const sp=tr.length>1&&tr[0][2]&&tr[tr.length-1][2]?(tr[tr.length-1][2]-tr[0][2])/(tr.length-1):1000,thr=Math.max(20000,sp*3);tr.forEach((p,i)=>{const q=P(p[0],p[1]),o=tr[i-1];const gap=o&&p[2]&&o[2]&&p[2]-o[2]>thr&&hav(o,p)>50;(i&&!gap)?ctx.lineTo(q[0],q[1]):ctx.moveTo(q[0],q[1])});ctx.strokeStyle='#fff';ctx.lineWidth=7;ctx.stroke();ctx.strokeStyle='#e11d48';ctx.lineWidth=4;ctx.stroke()}
   const me=RD.view?null:RD.fix;
   if(me){const q=P(me[0],me[1]),s=Math.min(w/CCV.sx,h/CCV.sy)*CM.zoom,ar=Math.min(80,me[2]*s/111320);
    if(ar>10){ctx.beginPath();ctx.arc(q[0],q[1],ar,0,Math.PI*2);ctx.fillStyle='rgba(37,99,235,.15)';ctx.fill()}
@@ -1347,6 +1358,9 @@ function rdCtl(){const el=$('#rdCtl');if(!el)return;
 function rdStart(){if(!navigator.geolocation){alert('이 기기에서는 위치(GPS)를 쓸 수 없습니다.');return}
  /* 안드로이드 앱: 기록 시작 전 위치 정보 사용 안내(백그라운드 위치 사용 고지). 동의 후 다시 시작 */
  if(window.AndroidBridge&&AndroidBridge.rideDisclosure&&!RD.consentOk){window.rdConsentOk=()=>{RD.consentOk=true;rdStart()};try{AndroidBridge.rideDisclosure()}catch(e){RD.consentOk=true;rdStart()}return}
+ /* 안드로이드 앱: 절전 모드·배터리 사용 제한 확인(걸린 항목이 있을 때만 안내 창) */
+ if(hasBr('ridePreCheck')&&!RD.preOk){window.rdPreOk=()=>{RD.preOk=true;rdStart()};try{AndroidBridge.ridePreCheck()}catch(e){RD.preOk=true;rdStart()}return}
+ RD.preOk=false;
  try{window.AndroidBridge&&AndroidBridge.ridePull&&AndroidBridge.ridePull()}catch(e){}
  Object.assign(RD,{st:'rec',el:0,mov:0,dist:0,kcal:0,maxV:0,v:0,pts:[],last:null,view:null,follow:true,t0:Date.now(),tick:Date.now()});
  if(RD.fix){RM.zoom=Math.max(RM.zoom,8);rdCenter(RD.fix[0],RD.fix[1])}
@@ -1371,7 +1385,10 @@ function rdList(){const el=$('#rdList');if(!el)return;const L=ls.get(LSK.rides,[
   gxSave(nm,new Blob([x],{type:'application/gpx+xml'}),$('#rdMsg'+b.dataset.rg))})}
 
 /* GPS */
-function rdGpsTxt(t){const e=$('#rdGps');if(!e)return;if(t){e.textContent=t;return}e.textContent=RD.err?RD.err:RD.fix?`GPS 정확도 ±${Math.round(RD.fix[2])}m`:'GPS 확인 중…';e.classList.toggle('bad',!!RD.err||!!(RD.fix&&RD.fix[2]>40))}
+function rdGpsTxt(t){const e=$('#rdGps');if(!e)return;if(t){e.textContent=t;return}const pw=rdPowerWarn();e.textContent=(RD.err?RD.err:RD.fix?`GPS 정확도 ±${Math.round(RD.fix[2])}m`:'GPS 확인 중…')+pw;e.classList.toggle('bad',!!RD.err||!!(RD.fix&&RD.fix[2]>40)||!!pw)}
+/* 안드로이드 앱: 절전 모드·배터리 사용 제한 경고 문구 */
+function rdPowerWarn(){if(!hasBr('powerState'))return '';let o={};try{o=JSON.parse(AndroidBridge.powerState()||'{}')}catch(e){}const w=[];if(o.ps)w.push('절전 모드 켜짐');if(o.opt)w.push('배터리 제한 있음');return w.length?' · '+w.join(' · ')+' — 화면을 끄면 기록이 끊길 수 있음':''}
+setInterval(()=>{if(!$('#p4').classList.contains('hide'))rdGpsTxt()},4000);
 function rdWatch(on){if(!navigator.geolocation)return;if(on&&RD.watch==null){RD.err='';RD.watch=navigator.geolocation.watchPosition(rdPos,rdErr,{enableHighAccuracy:true,maximumAge:1000,timeout:20000})}
  if(!on&&RD.watch!=null){navigator.geolocation.clearWatch(RD.watch);RD.watch=null}}
 function rdErr(e){RD.err=e.code===1?'위치 권한이 없습니다. 앱 설정에서 위치 권한을 허용해 주세요.':e.code===3?'GPS 신호를 기다리는 중…':'위치를 가져올 수 없습니다.';rdGpsTxt()}

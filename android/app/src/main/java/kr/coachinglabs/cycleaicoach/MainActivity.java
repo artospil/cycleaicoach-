@@ -3,9 +3,6 @@ package kr.coachinglabs.cycleaicoach;
 import android.Manifest;
 import android.annotation.SuppressLint;
 import android.content.ActivityNotFoundException;
-import android.content.BroadcastReceiver;
-import android.content.Context;
-import android.content.IntentFilter;
 import android.content.ContentValues;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -66,24 +63,6 @@ public class MainActivity extends AppCompatActivity {
     private WebView web;
     private GeolocationPermissions.Callback geoCb;
     private String geoOrigin;
-    /** 앱 화면이 사용자에게 보이는 중인지(화면 꺼짐으로 멈춘 경우는 제외) */
-    private boolean uiOnTop = false;
-    /**
-     * 라이딩 기록 중 앱 화면을 켠 채로 전원 버튼을 누르면, 안드로이드는 앱을 '잠든 맨 앞 앱'으로 취급해
-     * 위치 업데이트를 크게 줄인다(GPS 끊김 → 점 사이 직선). 홈 버튼으로 나간 경우(포그라운드 서비스만 남음)는
-     * 정상이므로, 화면이 꺼지는 순간 앱 화면을 뒤로 보내 같은 상태로 만든다. 다시 켜면 알림이나 앱 아이콘으로 돌아온다.
-     */
-    private final BroadcastReceiver screenOff = new BroadcastReceiver() {
-        @Override
-        public void onReceive(Context c, Intent i) {
-            if (!Intent.ACTION_SCREEN_OFF.equals(i.getAction())) return;
-            String st = RideService.state();
-            if (uiOnTop && RideService.isRunning() && ("rec".equals(st) || "pause".equals(st))) {
-                uiOnTop = false;
-                moveTaskToBack(true);
-            }
-        }
-    };
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -180,21 +159,6 @@ public class MainActivity extends AppCompatActivity {
         else web.loadUrl(START);
 
         if (savedInstanceState == null && !prefs().getBoolean("onboarded", false)) onboard(0);
-        ContextCompat.registerReceiver(this, screenOff, new IntentFilter(Intent.ACTION_SCREEN_OFF), ContextCompat.RECEIVER_NOT_EXPORTED);
-    }
-
-    @Override
-    protected void onStart() {
-        super.onStart();
-        uiOnTop = true;
-    }
-
-    @Override
-    protected void onStop() {
-        // 화면 꺼짐으로 멈춘 경우는 screenOff 가 처리하도록 표시를 남겨 둠
-        PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
-        if (pm == null || pm.isInteractive()) uiOnTop = false;
-        super.onStop();
     }
 
     private SharedPreferences prefs() {
@@ -248,6 +212,39 @@ public class MainActivity extends AppCompatActivity {
                     })
                     .setNegativeButton("나중에", (d, w) -> onboardDone())
                     .show();
+        }
+    }
+
+    /** 라이딩 시작 전 절전 모드·배터리 사용 제한 안내 */
+    private void preCheck() {
+        PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+        boolean ps = pm != null && pm.isPowerSaveMode();
+        boolean opt = pm != null && !pm.isIgnoringBatteryOptimizations(getPackageName());
+        Runnable go = () -> { if (web != null) web.evaluateJavascript("window.rdPreOk&&rdPreOk()", null); };
+        if ((!ps && !opt) || isFinishing()) { go.run(); return; }
+        StringBuilder m = new StringBuilder("아래 설정 때문에 화면이 꺼지면 GPS가 멈춰 경로가 끊기거나 비정상적으로 기록될 수 있습니다.\n");
+        if (ps) m.append("\n• 절전 모드가 켜져 있습니다");
+        if (opt) m.append("\n• 이 앱의 배터리 사용이 제한돼 있습니다 ('제한 없음'으로 바꿔 주세요)");
+        AlertDialog.Builder b = new AlertDialog.Builder(this)
+                .setTitle("기록 전에 확인해 주세요")
+                .setMessage(m.toString())
+                .setCancelable(true)
+                .setPositiveButton("그대로 시작", (d, w) -> go.run());
+        if (opt) b.setNegativeButton("배터리 설정 열기", (d, w) -> openSettings(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, true));
+        if (ps) {
+            if (opt) b.setNeutralButton("절전 모드 설정 열기", (d, w) -> openSettings(Settings.ACTION_BATTERY_SAVER_SETTINGS, false));
+            else b.setNegativeButton("절전 모드 설정 열기", (d, w) -> openSettings(Settings.ACTION_BATTERY_SAVER_SETTINGS, false));
+        }
+        b.show();
+    }
+
+    private void openSettings(String action, boolean withPkg) {
+        try {
+            Intent i = new Intent(action);
+            if (withPkg) i.setData(Uri.parse("package:" + getPackageName()));
+            startActivity(i);
+        } catch (Exception e) {
+            try { startActivity(new Intent(Settings.ACTION_SETTINGS)); } catch (Exception ignored) { }
         }
     }
 
@@ -317,7 +314,6 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
-        try { unregisterReceiver(screenOff); } catch (Exception ignored) { }
         // 화면 회전 등으로 화면만 다시 만들 때는 기록 서비스를 유지(새 화면이 이어 받음)
         if (!isChangingConfigurations()) {
             try { stopService(new Intent(this, RideService.class)); } catch (Exception ignored) { }
@@ -388,6 +384,28 @@ public class MainActivity extends AppCompatActivity {
         @JavascriptInterface
         public String kvAll() {
             return Kv.all(MainActivity.this);
+        }
+
+        /** 절전 모드(ps)·배터리 사용 제한(opt) 상태 */
+        @JavascriptInterface
+        public String powerState() {
+            PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+            if (pm == null) return "{}";
+            boolean ps = pm.isPowerSaveMode();
+            boolean opt = !pm.isIgnoringBatteryOptimizations(getPackageName());
+            return "{\"ps\":" + ps + ",\"opt\":" + opt + "}";
+        }
+
+        /** 라이딩 시작 전 확인: 절전 모드·배터리 제한이 걸려 있으면 안내 창, 아니면 바로 웹의 rdPreOk() */
+        @JavascriptInterface
+        public void ridePreCheck() {
+            runOnUiThread(MainActivity.this::preCheck);
+        }
+
+        /** GPS 진단 기록(화면 꺼짐·켜짐, 1분마다 GPS 수신 횟수·정확도·앱 상태) */
+        @JavascriptInterface
+        public String gpsLog() {
+            return RideService.logText();
         }
 
         /** 서비스가 모은 GPS 점(JSON)을 가져가고 비움 */

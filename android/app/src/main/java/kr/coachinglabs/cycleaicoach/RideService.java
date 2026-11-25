@@ -1,11 +1,15 @@
 package kr.coachinglabs.cycleaicoach;
 
+import android.app.ActivityManager;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.ServiceInfo;
 import android.location.Location;
 import android.location.LocationListener;
@@ -20,9 +24,12 @@ import android.os.PowerManager;
 
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.ServiceCompat;
+import androidx.core.content.ContextCompat;
 
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.Locale;
 
 /**
@@ -61,8 +68,50 @@ public class RideService extends Service {
     /** 이미 포그라운드(알림 표시) 상태인지. 한 번 시작한 뒤에는 startForeground 를 다시 부르지 않음
      *  (앱이 화면 밖일 때 다시 부르면 안드로이드 12~14가 막아 서비스가 꺼지고 GPS가 끊기던 원인) */
     private boolean fg = false;
+    // ── GPS 진단 기록 ──
+    private static final ArrayList<String> LOG = new ArrayList<>();
+    private int nGps = 0, nFused = 0;
+    private double accSum = 0;
+    private long lastSummary = 0;
+
+    static void log(String m) {
+        String t = new SimpleDateFormat("HH:mm:ss", Locale.US).format(new Date());
+        synchronized (LOG) {
+            LOG.add(t + "  " + m);
+            while (LOG.size() > 400) LOG.remove(0);
+        }
+    }
+
+    static String logText() {
+        StringBuilder b = new StringBuilder();
+        synchronized (LOG) { for (String l : LOG) b.append(l).append('\n'); }
+        return b.toString();
+    }
+
+    /** 현재 앱 상태 요약: 중요도(100 화면 사용 중, 125 포그라운드 서비스, 325 잠든 맨 앞 앱 등)·절전·화면 */
+    private String sysState() {
+        String imp = "?";
+        try {
+            ActivityManager.RunningAppProcessInfo i = new ActivityManager.RunningAppProcessInfo();
+            ActivityManager.getMyMemoryState(i);
+            imp = String.valueOf(i.importance);
+        } catch (Exception ignored) { }
+        PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+        String pw = pm == null ? "" : ((pm.isInteractive() ? "화면켬" : "화면끔") + (pm.isPowerSaveMode() ? "·절전모드" : "") + (pm.isDeviceIdleMode() ? "·잠자기" : ""));
+        return "앱상태 " + imp + " · " + pw;
+    }
+
+    private final BroadcastReceiver screenRx = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context c, Intent i) {
+            log((Intent.ACTION_SCREEN_OFF.equals(i.getAction()) ? "화면 꺼짐" : "화면 켜짐") + " · " + sysState());
+        }
+    };
+
     /** 마지막 GPS 수신 시각(elapsedRealtime). 기록 중 20초 넘게 안 오면 GPS 요청을 다시 건다 */
     private long lastFixAt = 0;
+    private boolean rxOn = false;
+    private long lastGpsAt = 0;
     private final Handler dog = new Handler(Looper.getMainLooper());
     private final Runnable dogTick = new Runnable() {
         @Override
@@ -164,6 +213,18 @@ public class RideService extends Service {
 
     private void onFix(Location l) {
         lastFixAt = SystemClock.elapsedRealtime();
+        boolean isGps = LocationManager.GPS_PROVIDER.equals(l.getProvider());
+        long nowE = SystemClock.elapsedRealtime();
+        if (isGps) lastGpsAt = nowE;
+        // GPS가 잘 들어오는 동안(3초 이내)에는 보조 위치를 쓰지 않아 경로가 흔들리지 않게 함
+        else if (nowE - lastGpsAt < 3000) return;
+        if (isGps) nGps++; else nFused++;
+        if (l.hasAccuracy()) accSum += l.getAccuracy();
+        if (lastFixAt - lastSummary >= 60000) {
+            int n = nGps + nFused;
+            log(String.format(Locale.US, "1분 수신 GPS %d회·보조 %d회 · 평균 정확도 ±%.0fm · %s", nGps, nFused, n > 0 ? accSum / n : 0, sysState()));
+            nGps = 0; nFused = 0; accSum = 0; lastSummary = lastFixAt;
+        }
         if (stopping || !"rec".equals(st)) { lastPt = null; return; }
         double acc = l.hasAccuracy() ? l.getAccuracy() : 99;
         double spd = l.hasSpeed() ? l.getSpeed() : -1;
@@ -206,8 +267,11 @@ public class RideService extends Service {
         if (lm == null) return;
         try {
             lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000L, 0f, listener, Looper.getMainLooper());
+            requestFused();
             active = true;
             lastFixAt = SystemClock.elapsedRealtime();
+            lastSummary = lastFixAt;
+            log("GPS 시작 · " + sysState());
             dog.removeCallbacks(dogTick);
             dog.postDelayed(dogTick, 10000);
         } catch (Exception e) {
@@ -223,6 +287,18 @@ public class RideService extends Service {
         try {
             lm.removeUpdates(listener);
             lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000L, 0f, listener, Looper.getMainLooper());
+            requestFused();
+        } catch (Exception ignored) { }
+        log("20초 넘게 위치 없음 → 위치 요청 다시 걺 · " + sysState());
+    }
+
+    /** 보조 위치(안드로이드 통합 위치, API 31+): GPS 신호가 약하거나 절전으로 GPS가 멈출 때 대비 */
+    @SuppressWarnings("MissingPermission")
+    private void requestFused() {
+        if (lm == null || Build.VERSION.SDK_INT < 31) return;
+        try {
+            if (lm.getAllProviders().contains(LocationManager.FUSED_PROVIDER))
+                lm.requestLocationUpdates(LocationManager.FUSED_PROVIDER, 1000L, 0f, listener, Looper.getMainLooper());
         } catch (Exception ignored) { }
     }
 
@@ -234,6 +310,7 @@ public class RideService extends Service {
             String c = A_PAUSE.equals(a) ? "pause" : A_RESUME.equals(a) ? "resume" : "stop";
             // 앱 화면이 멈춰 있어도 바로 반영: 일시정지 중에는 GPS 점을 모으지 않음
             long now0 = SystemClock.elapsedRealtime();
+            log("알림 버튼: " + c);
             if (A_PAUSE.equals(a) && "rec".equals(st)) {
                 if (recSince >= 0) el += now0 - recSince;
                 recSince = -1; st = "pause"; lastPt = null;
@@ -264,6 +341,14 @@ public class RideService extends Service {
         } else {
             NotificationManager nm1 = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
             if (nm1 != null) nm1.notify(ID, build());
+        }
+        if (!rxOn) {
+            try {
+                IntentFilter f = new IntentFilter(Intent.ACTION_SCREEN_OFF);
+                f.addAction(Intent.ACTION_SCREEN_ON);
+                ContextCompat.registerReceiver(this, screenRx, f, ContextCompat.RECEIVER_NOT_EXPORTED);
+                rxOn = true;
+            } catch (Exception ignored) { }
         }
         startGps();
         if (wl == null) {
@@ -323,6 +408,8 @@ public class RideService extends Service {
     @Override
     public void onDestroy() {
         dog.removeCallbacks(dogTick);
+        log("기록 서비스 종료" + (stopping ? "(정상 종료)" : "(비정상 종료)"));
+        if (rxOn) { try { unregisterReceiver(screenRx); } catch (Exception ignored) { } rxOn = false; }
         if (lm != null) {
             try { lm.removeUpdates(listener); } catch (Exception ignored) { }
             lm = null;
