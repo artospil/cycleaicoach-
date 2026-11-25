@@ -11,6 +11,7 @@ import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
 import android.os.Bundle;
+import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.os.Build;
@@ -60,6 +61,19 @@ public class RideService extends Service {
     /** 이미 포그라운드(알림 표시) 상태인지. 한 번 시작한 뒤에는 startForeground 를 다시 부르지 않음
      *  (앱이 화면 밖일 때 다시 부르면 안드로이드 12~14가 막아 서비스가 꺼지고 GPS가 끊기던 원인) */
     private boolean fg = false;
+    /** 마지막 GPS 수신 시각(elapsedRealtime). 기록 중 20초 넘게 안 오면 GPS 요청을 다시 건다 */
+    private long lastFixAt = 0;
+    private final Handler dog = new Handler(Looper.getMainLooper());
+    private final Runnable dogTick = new Runnable() {
+        @Override
+        public void run() {
+            if (lm != null && "rec".equals(st) && !stopping) {
+                long now = SystemClock.elapsedRealtime();
+                if (now - lastFixAt > 20000) { restartGps(); lastFixAt = now; }
+            }
+            dog.postDelayed(this, 10000);
+        }
+    };
 
     /** 실행 중인 서비스에 상태·숫자만 전달하고 알림을 갱신(서비스를 다시 시작하지 않음). 서비스가 없으면 false */
     static boolean update(String st, long el, double dist, double kcal, double v, double kg) {
@@ -149,6 +163,7 @@ public class RideService extends Service {
     }
 
     private void onFix(Location l) {
+        lastFixAt = SystemClock.elapsedRealtime();
         if (stopping || !"rec".equals(st)) { lastPt = null; return; }
         double acc = l.hasAccuracy() ? l.getAccuracy() : 99;
         double spd = l.hasSpeed() ? l.getSpeed() : -1;
@@ -192,10 +207,23 @@ public class RideService extends Service {
         try {
             lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000L, 0f, listener, Looper.getMainLooper());
             active = true;
+            lastFixAt = SystemClock.elapsedRealtime();
+            dog.removeCallbacks(dogTick);
+            dog.postDelayed(dogTick, 10000);
         } catch (Exception e) {
             active = false;
             lm = null;
         }
+    }
+
+    /** GPS 요청을 다시 건다(절전 등으로 위치 업데이트가 멈췄을 때) */
+    @SuppressWarnings("MissingPermission")
+    private void restartGps() {
+        if (lm == null) return;
+        try {
+            lm.removeUpdates(listener);
+            lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000L, 0f, listener, Looper.getMainLooper());
+        } catch (Exception ignored) { }
     }
 
     @Override
@@ -294,6 +322,7 @@ public class RideService extends Service {
 
     @Override
     public void onDestroy() {
+        dog.removeCallbacks(dogTick);
         if (lm != null) {
             try { lm.removeUpdates(listener); } catch (Exception ignored) { }
             lm = null;

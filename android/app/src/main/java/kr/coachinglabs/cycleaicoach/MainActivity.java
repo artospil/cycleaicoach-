@@ -3,6 +3,9 @@ package kr.coachinglabs.cycleaicoach;
 import android.Manifest;
 import android.annotation.SuppressLint;
 import android.content.ActivityNotFoundException;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.IntentFilter;
 import android.content.ContentValues;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -57,6 +60,24 @@ public class MainActivity extends AppCompatActivity {
     private WebView web;
     private GeolocationPermissions.Callback geoCb;
     private String geoOrigin;
+    /** 앱 화면이 사용자에게 보이는 중인지(화면 꺼짐으로 멈춘 경우는 제외) */
+    private boolean uiOnTop = false;
+    /**
+     * 라이딩 기록 중 앱 화면을 켠 채로 전원 버튼을 누르면, 안드로이드는 앱을 '잠든 맨 앞 앱'으로 취급해
+     * 위치 업데이트를 크게 줄인다(GPS 끊김 → 점 사이 직선). 홈 버튼으로 나간 경우(포그라운드 서비스만 남음)는
+     * 정상이므로, 화면이 꺼지는 순간 앱 화면을 뒤로 보내 같은 상태로 만든다. 다시 켜면 알림이나 앱 아이콘으로 돌아온다.
+     */
+    private final BroadcastReceiver screenOff = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context c, Intent i) {
+            if (!Intent.ACTION_SCREEN_OFF.equals(i.getAction())) return;
+            String st = RideService.state();
+            if (uiOnTop && RideService.isRunning() && ("rec".equals(st) || "pause".equals(st))) {
+                uiOnTop = false;
+                moveTaskToBack(true);
+            }
+        }
+    };
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -135,6 +156,21 @@ public class MainActivity extends AppCompatActivity {
         else web.loadUrl(START);
 
         if (savedInstanceState == null && !prefs().getBoolean("onboarded", false)) onboard(0);
+        ContextCompat.registerReceiver(this, screenOff, new IntentFilter(Intent.ACTION_SCREEN_OFF), ContextCompat.RECEIVER_NOT_EXPORTED);
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        uiOnTop = true;
+    }
+
+    @Override
+    protected void onStop() {
+        // 화면 꺼짐으로 멈춘 경우는 screenOff 가 처리하도록 표시를 남겨 둠
+        PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+        if (pm == null || pm.isInteractive()) uiOnTop = false;
+        super.onStop();
     }
 
     private SharedPreferences prefs() {
@@ -236,6 +272,7 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        try { unregisterReceiver(screenOff); } catch (Exception ignored) { }
         // 화면 회전 등으로 화면만 다시 만들 때는 기록 서비스를 유지(새 화면이 이어 받음)
         if (!isChangingConfigurations()) {
             try { stopService(new Intent(this, RideService.class)); } catch (Exception ignored) { }
