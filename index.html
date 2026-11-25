@@ -291,6 +291,11 @@ body.on-start .start-opts{gap:14px!important}
 .sub-h{margin-bottom:14px!important}
 .rd-map{margin-bottom:14px!important}
 .rd-stats{gap:14px!important;margin-bottom:14px!important}
+/* 사이드바 아래: 개인정보처리방침·위치정보 이용약관 링크 */
+.sb{display:flex!important;flex-direction:column}
+.sb-foot{margin-top:auto;padding:18px 4px 6px;display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;font-size:12.5px;color:var(--mut)}
+.sb-foot a{color:#c8cfdb;text-decoration:none}.sb-foot a:active{color:#fff}
+.sb-foot small{flex-basis:100%;font-size:11.5px;color:var(--mut)}
 </style>
 </head><body class="on-start">
 <header id="hdr" class="hide"><div class="wrap"><button id="menuBtn" class="menu-btn" aria-label="메뉴 열기" aria-expanded="false" aria-controls="sb"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button><h1 class="brand" aria-label="Cycle AI Coach"><svg class="logo logo-sm" viewBox="0 0 120 120" aria-hidden="true"><path d="M96.5 40.5 A46 46 0 1 1 79 20.6" fill="none" stroke="#ffffff" stroke-width="9" stroke-linecap="round"/><path d="M101 9 L104 18 L113 21 L104 24 L101 33 L98 24 L89 21 L98 18 Z" fill="#ffffff"/><g><rect x="26" y="72" width="9" height="16" rx="4.5" fill="#ffffff" transform="skewX(-14) translate(21,0)"/><rect x="40" y="60" width="9" height="28" rx="4.5" fill="#ffffff" transform="skewX(-14) translate(21,0)"/><rect x="54" y="46" width="9" height="42" rx="4.5" fill="#ffffff" transform="skewX(-14) translate(21,0)"/><rect x="68" y="54" width="9" height="34" rx="4.5" fill="#ffffff" transform="skewX(-14) translate(21,0)"/><rect x="82" y="64" width="9" height="24" rx="4.5" fill="#ffffff" transform="skewX(-14) translate(21,0)"/></g></svg><span><span class="wm wm-sm"><b class="wm-c">Cycle</b> <b class="wm-ai">AI</b> <i class="wm-co">Coach</i></span><small>AI가 설계하는 나만의 사이클 훈련</small></span></h1>
@@ -303,6 +308,7 @@ body.on-start .start-opts{gap:14px!important}
   <button data-go="5"><svg viewBox="0 0 24 24"><path d="M5 4h11a3 3 0 013 3v13H8a3 3 0 01-3-3zM5 17a3 3 0 013-3h11M9 8h6"/></svg><span><b>훈련 용어 사전</b><small>존 · FTP · IF · TSS · LT · VO2max 등</small></span></button>
   <button data-go="4"><svg viewBox="0 0 24 24"><circle cx="5.5" cy="16.5" r="3.5"/><circle cx="18.5" cy="16.5" r="3.5"/><path d="M5.5 16.5L9.5 9.5L11.5 16.5ZM9.5 9.5H16M11.5 16.5L16 9.5L18.5 16.5M9.5 9.5L9 7.5M7.5 7.5h3M16 9.5L15.3 7h2.4"/></svg><span><b>라이딩 모드</b><small>GPS로 코스 주행 · 속도 · 거리 · 칼로리 기록</small></span></button>
  </div>
+ <div class="sb-foot"><a href="privacy.html#privacy">개인정보처리방침</a><span>·</span><a href="privacy.html#location">위치정보 이용약관</a><small>문의 artospil@naver.com</small></div>
 </aside>
 
 <main>
@@ -1339,6 +1345,8 @@ function rdCtl(){const el=$('#rdCtl');if(!el)return;
  on('rdStop',()=>{rdPull();RD.prev=RD.st;RD.st='end';rdKeep(false);rdCtl()});on('rdBack',()=>{RD.st=RD.prev==='rec'?'rec':'pause';RD.tick=Date.now();if(RD.st==='rec')rdKeep(true);rdCtl()});
  on('rdSave',()=>{rdSaveRec(rdSnap());rdReset();rdRender()});on('rdDiscard',()=>{rdReset();rdRender()})}
 function rdStart(){if(!navigator.geolocation){alert('이 기기에서는 위치(GPS)를 쓸 수 없습니다.');return}
+ /* 안드로이드 앱: 기록 시작 전 위치 정보 사용 안내(백그라운드 위치 사용 고지). 동의 후 다시 시작 */
+ if(window.AndroidBridge&&AndroidBridge.rideDisclosure&&!RD.consentOk){window.rdConsentOk=()=>{RD.consentOk=true;rdStart()};try{AndroidBridge.rideDisclosure()}catch(e){RD.consentOk=true;rdStart()}return}
  try{window.AndroidBridge&&AndroidBridge.ridePull&&AndroidBridge.ridePull()}catch(e){}
  Object.assign(RD,{st:'rec',el:0,mov:0,dist:0,kcal:0,maxV:0,v:0,pts:[],last:null,view:null,follow:true,t0:Date.now(),tick:Date.now()});
  if(RD.fix){RM.zoom=Math.max(RM.zoom,8);rdCenter(RD.fix[0],RD.fix[1])}

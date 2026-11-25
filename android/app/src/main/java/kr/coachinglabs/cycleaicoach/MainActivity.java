@@ -28,6 +28,7 @@ import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.FrameLayout;
 import android.widget.Toast;
 
 import androidx.activity.OnBackPressedCallback;
@@ -36,6 +37,11 @@ import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
+import androidx.core.view.WindowInsetsControllerCompat;
 import androidx.webkit.WebViewAssetLoader;
 
 import java.io.File;
@@ -85,7 +91,22 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         web = new WebView(this);
         RideService.act = new java.lang.ref.WeakReference<>(this);
-        setContentView(web);
+        // Android 15·16(targetSdk 35+)은 앱이 상태바·내비게이션바 아래까지 그려지므로(edge-to-edge),
+        // 화면을 감싸는 틀에 시스템 바·카메라 구멍·키보드 높이만큼 여백을 줘 내용이 가려지지 않게 한다.
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+        FrameLayout root = new FrameLayout(this);
+        root.setBackgroundColor(0xFF07090D);
+        root.addView(web, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        ViewCompat.setOnApplyWindowInsetsListener(root, (v, insets) -> {
+            Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
+            Insets ime = insets.getInsets(WindowInsetsCompat.Type.ime());
+            v.setPadding(bars.left, bars.top, bars.right, Math.max(bars.bottom, ime.bottom));
+            return WindowInsetsCompat.CONSUMED;
+        });
+        setContentView(root);
+        WindowInsetsControllerCompat wic = WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
+        wic.setAppearanceLightStatusBars(false);     // 어두운 배경 → 흰색 상태바 아이콘
+        wic.setAppearanceLightNavigationBars(false);
 
         final WebViewAssetLoader loader = new WebViewAssetLoader.Builder()
                 .setDomain(HOST)
@@ -107,10 +128,13 @@ public class MainActivity extends AppCompatActivity {
                 if (hasLocation()) {
                     callback.invoke(origin, true, false);
                 } else {
-                    geoOrigin = origin;
-                    geoCb = callback;
-                    ActivityCompat.requestPermissions(MainActivity.this,
-                            new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION}, REQ_LOC);
+                    // 위치 권한 창을 띄우기 전에 위치 정보 사용 안내를 먼저 보여 준다
+                    locDisclosure(() -> {
+                        geoOrigin = origin;
+                        geoCb = callback;
+                        ActivityCompat.requestPermissions(MainActivity.this,
+                                new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION}, REQ_LOC);
+                    }, () -> callback.invoke(origin, false, false));
                 }
             }
         });
@@ -181,15 +205,12 @@ public class MainActivity extends AppCompatActivity {
     private void onboard(int step) {
         if (isFinishing()) return;
         if (step == 0) {
-            if (hasLocation()) { onboard(1); return; }
-            new AlertDialog.Builder(this)
-                    .setTitle("위치 권한을 허용해 주세요")
-                    .setMessage("라이딩 모드에서 GPS로 코스·속도·거리·소모 칼로리를 기록하려면 위치 권한이 필요합니다.\n\n다음 창에서 '정확한 위치'를 켜고 '앱 사용 중에만 허용'을 눌러 주세요.")
-                    .setCancelable(false)
-                    .setPositiveButton("계속", (d, w) -> ActivityCompat.requestPermissions(this,
-                            new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION}, REQ_ONB_LOC))
-                    .setNegativeButton("나중에", (d, w) -> onboard(1))
-                    .show();
+            if (hasLocation() && prefs().getBoolean("locConsent", false)) { onboard(1); return; }
+            locDisclosure(() -> {
+                if (hasLocation()) onboard(1);
+                else ActivityCompat.requestPermissions(this,
+                        new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION}, REQ_ONB_LOC);
+            }, () -> onboard(1));
         } else if (step == 1) {
             if (prefs().contains("notiConsent")) { onboard(2); return; }
             new AlertDialog.Builder(this)
@@ -214,12 +235,13 @@ public class MainActivity extends AppCompatActivity {
             if (pm == null || pm.isIgnoringBatteryOptimizations(getPackageName())) { onboardDone(); return; }
             new AlertDialog.Builder(this)
                     .setTitle("백그라운드 실행을 허용해 주세요")
-                    .setMessage("화면을 끄거나 다른 앱을 쓰는 동안 휴대폰 절전 기능이 기록을 멈추지 않도록, 이 앱의 배터리 사용 제한(배터리 최적화)을 해제해 주세요.\n\n다음 창에서 '허용'을 눌러 주세요. 나중에 휴대폰 설정 > 애플리케이션 > Cycle AI Coach > 배터리에서도 바꿀 수 있습니다.")
+                    .setMessage("화면을 끄거나 다른 앱을 쓰는 동안 휴대폰 절전 기능이 기록을 멈추지 않도록, 이 앱의 배터리 사용 제한을 풀어 주세요.\n\n다음에 열리는 앱 정보 화면에서 '배터리'를 누르고 '제한 없음'(또는 '최적화 안 함')을 골라 주세요. 나중에 휴대폰 설정 > 애플리케이션 > Cycle AI Coach > 배터리에서도 바꿀 수 있습니다.")
                     .setCancelable(false)
                     .setPositiveButton("설정하기", (d, w) -> {
                         onboardDone();
+                        // 플레이스토어 정책상 '배터리 최적화 예외 요청' 권한 없이, 사용자가 직접 바꾸는 설정 화면만 연다
                         try {
-                            startActivity(new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:" + getPackageName())));
+                            startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName())));
                         } catch (Exception e) {
                             try { startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)); } catch (Exception ignored) { }
                         }
@@ -231,6 +253,29 @@ public class MainActivity extends AppCompatActivity {
 
     private void onboardDone() {
         prefs().edit().putBoolean("onboarded", true).apply();
+    }
+
+    /**
+     * 위치 정보 사용 안내(구글 플레이 '눈에 띄는 공개' 기준). 위치 권한 요청 창과 라이딩 기록(백그라운드 위치 사용) 시작 전에 보여 준다.
+     * 한 번 동의하면 다시 묻지 않고 바로 yes 를 실행한다.
+     */
+    private void locDisclosure(Runnable yes, Runnable no) {
+        if (prefs().getBoolean("locConsent", false)) { yes.run(); return; }
+        if (isFinishing()) return;
+        new AlertDialog.Builder(this)
+                .setTitle("위치 정보 사용 안내")
+                .setMessage("Cycle AI Coach는 라이딩 기록 기능을 위해 위치 정보를 수집합니다.\n\n"
+                        + "라이딩 기록 중에는 앱이 닫혀 있거나 화면이 꺼져 있을 때도(백그라운드) 위치 정보를 계속 사용해 이동 경로·거리·속도·소모 칼로리를 기록합니다. "
+                        + "기록하는 동안에는 알림창에 기록 알림이 표시되고, 기록을 종료하면 위치 사용도 멈춥니다.\n\n"
+                        + "위치 정보는 휴대폰 안에만 저장되며 외부 서버로 전송되거나 제3자에게 제공되지 않습니다."
+                        + (hasLocation() ? "" : "\n\n다음 창에서 '정확한 위치'를 켜고 '앱 사용 중에만 허용'을 눌러 주세요."))
+                .setCancelable(false)
+                .setPositiveButton("동의하고 계속", (d, w) -> {
+                    prefs().edit().putBoolean("locConsent", true).apply();
+                    yes.run();
+                })
+                .setNegativeButton("동의 안 함", (d, w) -> { if (no != null) no.run(); })
+                .show();
     }
 
     /** 알림 버튼 → 웹 라이딩 모드로 전달 */
@@ -283,6 +328,14 @@ public class MainActivity extends AppCompatActivity {
 
     /** JS → 안드로이드: 파일 저장, 라이딩 중 화면 켜짐 유지 */
     private class Bridge {
+        /** 라이딩 기록 시작 전: 위치 정보 사용 안내(이미 동의했으면 바로) → 동의하면 웹의 rdConsentOk() 호출 */
+        @JavascriptInterface
+        public void rideDisclosure() {
+            runOnUiThread(() -> locDisclosure(
+                    () -> { if (web != null) web.evaluateJavascript("window.rdConsentOk&&rdConsentOk()", null); },
+                    null));
+        }
+
         @JavascriptInterface
         public void rideService(boolean on) {
             runOnUiThread(() -> {
