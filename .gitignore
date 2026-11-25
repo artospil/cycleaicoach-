@@ -1,0 +1,10 @@
+# Android 빌드 산출물·로컬 설정·서명 키(절대 올리지 않음)
+android/.gradle/
+android/.idea/
+android/local.properties
+android/**/build/
+*.jks
+*.keystore
+*.apk
+*.aab
+.DS_Store
